@@ -491,6 +491,32 @@ chrome.tabs.onActivated.addListener(
 
     }
 );
+chrome.tabs.onRemoved.addListener(
+    async (tabId) => {
+
+        const result =
+            await chrome.storage.local.get(
+                "serenityActive"
+            );
+
+        const active =
+            result.serenityActive;
+
+        if (!active) {
+            return;
+        }
+
+        if (active.tabId !== tabId) {
+            return;
+        }
+
+        console.log(
+            "SERENITY: Tracked tab closed."
+        );
+
+        await stopTracking();
+    }
+);
 
 
 // ============================================
