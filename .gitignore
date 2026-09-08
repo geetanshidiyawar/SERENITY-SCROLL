@@ -1,2 +1,7 @@
+AIML
 __pycache__/
 *.pyc
+
+.venv/
+.env
+ main
