@@ -1,0 +1,18 @@
+{
+    "text": "I feel very sad and worried after reading this news.",
+    "dominant_emotion": "sadness",
+    "scores": {
+        "sadness": 0.9845224618911743,
+        "fear": 0.004336335696280003,
+        "anger": 0.0006698072538711131,
+        "joy": 0.0018569913227111101,
+        "neutral": 0.004967858083546162,
+        "surprise": 0.0026926384307444096,
+        "disgust": 0.0009538634330965579
+    },
+    "negative_score": 0.990482468274422,
+    "content_type": "news",
+    "exposure_count": 1,
+    "time_spent_minutes": 0.0,
+    "trigger": true
+}
