@@ -1,0 +1,208 @@
+/* ============================================
+   SERENITY POPUP
+   ============================================ */
+
+body {
+
+    width: 330px;
+
+    margin: 0;
+
+    font-family:
+        Arial,
+        Helvetica,
+        sans-serif;
+
+    background: #f5f8f6;
+
+    color: #222;
+
+}
+
+
+/* --------------------------------------------
+   Main container
+   -------------------------------------------- */
+
+.container {
+
+    padding: 20px;
+
+}
+
+
+/* --------------------------------------------
+   Header
+   -------------------------------------------- */
+
+.header h1 {
+
+    margin: 0;
+
+    font-size: 25px;
+
+}
+
+
+.header p {
+
+    margin-top: 5px;
+
+    margin-bottom: 0;
+
+    color: #666;
+
+    font-size: 13px;
+
+}
+
+
+/* --------------------------------------------
+   Monitoring status
+   -------------------------------------------- */
+
+.status {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 7px;
+
+    margin-top: 18px;
+
+    font-size: 13px;
+
+}
+
+
+.status-dot {
+
+    width: 9px;
+
+    height: 9px;
+
+    background: #4caf50;
+
+    border-radius: 50%;
+
+    display: inline-block;
+
+}
+
+
+/* --------------------------------------------
+   Activity section
+   -------------------------------------------- */
+
+.section {
+
+    margin-top: 20px;
+
+}
+
+
+.section h2 {
+
+    font-size: 16px;
+
+    margin-bottom: 10px;
+
+}
+
+
+/* --------------------------------------------
+   Website rows
+   -------------------------------------------- */
+
+.site {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    padding: 10px 0;
+
+    border-bottom: 1px solid #ddd;
+
+    font-size: 13px;
+
+}
+
+
+.site span {
+
+    max-width: 190px;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+}
+
+
+.site strong {
+
+    font-weight: 600;
+
+}
+
+
+/* --------------------------------------------
+   Total browsing time
+   -------------------------------------------- */
+
+.total {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    margin-top: 20px;
+
+    padding: 14px;
+
+    border-radius: 10px;
+
+    background: white;
+
+}
+
+
+.total span {
+
+    font-size: 13px;
+
+}
+
+
+.total strong {
+
+    font-size: 15px;
+
+}
+
+
+/* --------------------------------------------
+   Footer
+   -------------------------------------------- */
+
+.footer {
+
+    margin-top: 18px;
+
+    font-size: 11px;
+
+    line-height: 1.5;
+
+    color: #777;
+
+    text-align: center;
+
+}

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+
+  "name": "Serenity",
+  "version": "1.0.0",
+
+  "description": "Serenity gently interrupts unhealthy scrolling patterns with personalized positive interventions.",
+
+  "permissions": [
+    "tabs",
+    "storage"
+  ],
+
+  "host_permissions": [
+    "http://localhost:8000/*"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "action": {
+    "default_popup": "popup.html"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}
