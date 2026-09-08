@@ -1,0 +1,31 @@
+text,expected_type
+"I got the promotion today and I can't stop smiling!",positive
+"Spending time with my friends this weekend made me so happy.",positive
+"I feel like everything is falling apart and I don't know what to do.",negative
+"I've been crying on and off all day, I just feel so empty.",negative
+"The house was completely silent after they left, and I sat there alone for hours.",negative
+"I heard footsteps behind me in the parking garage and my heart started racing.",fear
+"The storm warnings are getting worse and I don't know if we should evacuate.",fear
+"I can't shake the feeling that something bad is about to happen.",fear
+"He slammed the door so hard the walls shook.",angry
+"I am absolutely furious that they cancelled the meeting without telling anyone.",angry
+"Stop interrupting me every single time I try to speak!",angry
+"The meeting is scheduled for 3 PM in conference room B.",neutral
+"The bus arrives every fifteen minutes on weekdays.",neutral
+"Please remember to submit the form by Friday.",neutral
+"It was a rough day at work, but dinner with my family made it all worth it.",mixed
+"I lost the game, but I'm proud of how hard the team fought.",mixed
+"I'm not even mad, I'm just disappointed that you didn't try.",mixed
+"This place is killer, I had such a blast last night!",positive_with_negative_words
+"That movie was insanely good, I was dying laughing the whole time.",positive_with_negative_words
+"I'm fine. Everything's fine. Don't worry about me.",negative_without_keywords
+"Sure, go ahead without me, I'll just stay here by myself again.",negative_without_keywords
+"Local officials announced today that the bridge will remain closed through next month due to structural repairs.",news
+"Markets fell sharply this afternoon after the central bank's announcement, wiping out early gains.",news
+"BREAKING: Flights grounded nationwide after unprecedented system outage.",news
+"just found out my flight got delayed again lol why does this always happen to me",social_media
+"omg this new coffee shop is EVERYTHING, going back tomorrow fr",social_media
+"can't believe people are still doing this in 2026, so exhausting to watch honestly",social_media
+"woke up feeling great today, ready to take on whatever comes my way ☀️",positive
+"i don't even know why i bother anymore, nothing i do seems to matter",negative
+"the news kept replaying the same footage over and over and i couldn't look away",fear
