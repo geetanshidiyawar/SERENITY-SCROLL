@@ -1,0 +1,7 @@
+{
+  "name": "Serenity",
+  "description": "A digital wellbeing system that gently interrupts mindless scrolling patterns with a calming, personalized nature retreat and mindful intervention.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

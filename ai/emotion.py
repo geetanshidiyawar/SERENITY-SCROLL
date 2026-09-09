@@ -1,95 +1,135 @@
 """
 ai/emotion.py
 
-Emotion classification module for MindBreak.
+Emotion analysis for Serenity Scroll.
 
-Uses a pretrained Hugging Face Transformer model via the `transformers`
-pipeline API to classify text into emotion categories with probability
-scores. No training or fine-tuning is performed — this is inference only.
+Uses:
+    j-hartmann/emotion-english-distilroberta-base
+
+The model has a limited token context window, so long webpage text
+is explicitly truncated before inference.
 """
 
 from typing import Dict
+
 from transformers import pipeline
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-# Pretrained multi-class emotion classification model (6 base emotions +
-# neutral). Swap this constant to try other emotion models without touching
-# any other code.
+
 MODEL_NAME = "j-hartmann/emotion-english-distilroberta-base"
 
-# The standardized keys the rest of the app expects back. Any label the
-# model returns that is NOT in this set is preserved under its original
-# name rather than being dropped.
-_BASE_EMOTIONS = ["sadness", "fear", "anger", "joy"]
+# Keep this below the model's positional embedding limit.
+# RoBERTa supports 514 positional embeddings, but using 512 tokens
+# gives us a safe margin for special tokens.
+MAX_TOKENS = 512
 
-# ---------------------------------------------------------------------------
-# Pipeline initialization (loaded once, reused across calls)
-# ---------------------------------------------------------------------------
-# top_k=None tells the pipeline to return scores for ALL labels instead of
-# just the top prediction (this replaced the deprecated `return_all_scores=True`).
-_emotion_pipeline = pipeline(
-    task="text-classification",
+
+print("Loading Serenity emotion model...")
+
+emotion_classifier = pipeline(
+    "text-classification",
     model=MODEL_NAME,
+    tokenizer=MODEL_NAME,
     top_k=None,
 )
 
-
-def _empty_result() -> Dict[str, float]:
-    """Standardized zeroed-out result for empty/invalid input."""
-    return {emotion: 0.0 for emotion in _BASE_EMOTIONS}
+print("Serenity emotion model loaded successfully.")
 
 
 def analyze_emotion(text: str) -> Dict[str, float]:
     """
-    Analyze the emotional content of a piece of text.
-
-    Args:
-        text: Input string to classify.
+    Analyze the emotional content of text.
 
     Returns:
-        A dictionary containing at least the base emotions:
-            {"sadness": float, "fear": float, "anger": float, "joy": float}
-        If the underlying model produces additional labels (e.g. "surprise",
-        "disgust", "neutral"), those are included as extra keys rather than
-        being discarded.
-
-        All values are floats in [0.0, 1.0].
+        {
+            "sadness": 0.82,
+            "fear": 0.05,
+            ...
+        }
     """
-    # --- Safe handling of empty / invalid input -----------------------------
-    if text is None or not isinstance(text, str) or text.strip() == "":
-        return _empty_result()
 
-    # --- Run inference -------------------------------------------------------
-    # With top_k=None, output shape is: [[{"label": ..., "score": ...}, ...]]
-    raw_output = _emotion_pipeline(text)
-
-    # Normalize output shape (some versions return a flat list for single input)
-    scores = raw_output[0] if isinstance(raw_output[0], list) else raw_output
-
-    # --- Build result dict ----------------------------------------------------
-    result = _empty_result()  # ensures base emotions always exist, default 0.0
-
-    for entry in scores:
-        label = entry["label"].lower()
-        score = float(entry["score"])
-        result[label] = score  # overwrites base emotion or adds new label
-
-    return result
+    if not text or not text.strip():
+        return {}
 
 
-# ---------------------------------------------------------------------------
-# Quick manual test (run: python ai/emotion.py)
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    test_inputs = [
-        "I can't believe I lost my job, I feel so hopeless.",
-        "You scared the hell out of me, don't ever do that again!",
-        "",
-    ]
+    # ------------------------------------------------------------
+    # Clean input
+    # ------------------------------------------------------------
 
-    for t in test_inputs:
-        print(f"Input: {t!r}")
-        print("Output:", analyze_emotion(t))
-        print("-" * 60)
+    text = str(text).strip()
+
+
+    # ------------------------------------------------------------
+    # Hugging Face inference
+    #
+    # IMPORTANT:
+    # truncation=True prevents long webpages from exceeding
+    # the model's positional embedding limit.
+    # ------------------------------------------------------------
+
+    results = emotion_classifier(
+        text,
+        truncation=True,
+        max_length=MAX_TOKENS,
+    )
+
+
+    # ------------------------------------------------------------
+    # Convert Hugging Face output into:
+    #
+    # {
+    #     "sadness": 0.82,
+    #     "joy": 0.05,
+    #     ...
+    # }
+    # ------------------------------------------------------------
+
+    scores: Dict[str, float] = {}
+
+
+    if not results:
+        return scores
+
+
+    # With top_k=None, the pipeline normally returns:
+    #
+    # [
+    #     [
+    #         {"label": "...", "score": ...},
+    #         ...
+    #     ]
+    # ]
+    #
+    # Handle both nested and non-nested forms safely.
+
+    if (
+        isinstance(results, list)
+        and len(results) > 0
+        and isinstance(results[0], list)
+    ):
+
+        predictions = results[0]
+
+    else:
+
+        predictions = results
+
+
+    for item in predictions:
+
+        if not isinstance(item, dict):
+            continue
+
+
+        label = item.get("label")
+
+        score = item.get("score")
+
+
+        if label is None or score is None:
+            continue
+
+
+        scores[str(label)] = float(score)
+
+
+    return scores

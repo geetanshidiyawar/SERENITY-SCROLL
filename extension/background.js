@@ -1,377 +1,342 @@
-// ============================================
-// SERENITY - TIME TRACKER + PAGE DATA
-// ============================================
+const API_URL = "http://localhost:8000/page-data";
 
-console.log(
-    "SERENITY background service worker started."
-);
+const ANALYSIS_ALARM = "serenity-analysis";
+const HEARTBEAT_ALARM = "serenity-heartbeat";
 
+const ANALYSIS_PERIOD_MINUTES = 0.5;
+const HEARTBEAT_PERIOD_MINUTES = 0.5;
 
-// ============================================
-// FASTAPI CONFIGURATION
-// ============================================
-
-const API_URL =
-    "http://localhost:8000/page-data";
+const INTERVENTION_COOLDOWN_MS = 10 * 60 * 1000;
+const SERENITY_OPEN_DELAY_MS = 10000;
 
 
-// ============================================
-// Reset tracking data when a new day starts
-// ============================================
+// ============================================================
+// BASIC HELPERS
+// ============================================================
 
-async function ensureToday() {
+function getTodayKey() {
 
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
 
-    const result =
-        await chrome.storage.local.get("serenityTime");
-
-    const data = result.serenityTime;
-
-    // No previous tracking data
-    if (!data) {
-        return;
-    }
-
-    // First time using the new date
-    if (data.date !== today) {
-
-        console.log(
-            "SERENITY: New day detected. Resetting today's activity."
-        );
-
-        await chrome.storage.local.set({
-            serenityTime: {
-                date: today,
-                totalSeconds: 0,
-                sites: {}
-            }
-        });
-    }
-}
-// ============================================
-// Get the currently active tab
-// ============================================
-
-async function getActiveTab() {
-
-    const tabs = await chrome.tabs.query({
-
-        active: true,
-
-        lastFocusedWindow: true
-
-    });
-
-
-    if (tabs.length === 0) {
-
-        return null;
-
-    }
-
-
-    return tabs[0];
-
+    return (
+        now.getFullYear() +
+        "-" +
+        String(now.getMonth() + 1).padStart(2, "0") +
+        "-" +
+        String(now.getDate()).padStart(2, "0")
+    );
 }
 
-
-// ============================================
-// Check whether URL can be tracked
-// ============================================
 
 function isTrackableUrl(url) {
 
-    if (!url) {
-
-        return false;
-
-    }
-
-
     return (
-        url.startsWith("http://") ||
-        url.startsWith("https://")
+        typeof url === "string" &&
+        (
+            url.startsWith("http://") ||
+            url.startsWith("https://")
+        )
     );
-
 }
 
 
-// ============================================
-// Start tracking a website
-// ============================================
-
-async function startTracking(tab) {
-    await ensureToday();
-
-    if (
-        !tab ||
-        !tab.id ||
-        !isTrackableUrl(tab.url)
-    ) {
-
-        return;
-
-    }
-
-
-    const domain =
-        new URL(tab.url).hostname;
-
-    const pendingResult =
-       await chrome.storage.local.get(
-        "serenityPendingPageData"
-       );
-
-    const pending =
-       pendingResult.serenityPendingPageData || {};
-
-    const pageData =
-        pending[tab.id] || null;
-
-    delete pending[tab.id];
-
-    await chrome.storage.local.set({
-       serenityPendingPageData: pending
-});
-
-
-    const trackingData = {
-
-        tabId: tab.id,
-
-        url: tab.url,
-
-        domain: domain,
-
-        startTime: Date.now(),
-
-        pageData: pageData
-
-    };
-
-
-    await chrome.storage.local.set({
-
-        serenityActive: trackingData
-
-    });
-
-
-    console.log(
-        "SERENITY: Started tracking"
-    );
-
-    console.log(
-        "Website:",
-        domain
-    );
-    // Tell us whether page data was successfully attached
-    if (pageData) {
-        console.log(
-            "SERENITY: Page data attached to tracking session."
-        );
-    }
-}
-
-
-// ============================================
-// Send page data + time to FastAPI
-// ============================================
-
-async function sendToFastAPI(
-    pageData,
-    elapsedSeconds
-) {
-
-    if (!pageData) {
-
-        console.log(
-            "SERENITY: No page data available."
-        );
-
-        return;
-
-    }
-
-
-    const payload = {
-
-        url: pageData.url,
-
-        title: pageData.title,
-
-        text: pageData.text,
-
-        time_spent_seconds:
-            elapsedSeconds
-
-    };
-
-
-    console.log(
-        "SERENITY: Sending data to FastAPI..."
-    );
-
-    console.log(payload);
-
+async function getActiveTab() {
 
     try {
 
-        const response = await fetch(
-            API_URL,
-            {
+        const tabs =
+            await chrome.tabs.query({
+                active: true,
+                lastFocusedWindow: true
+            });
 
-                method: "POST",
-
-                headers: {
-
-                    "Content-Type":
-                        "application/json"
-
-                },
-
-                body: JSON.stringify(payload)
-
-            }
-        );
-
-
-        if (!response.ok) {
-
-            throw new Error(
-                `FastAPI returned ${response.status}`
-            );
-
-        }
-
-
-        const result =
-            await response.json();
-
-
-        console.log(
-            "SERENITY: FastAPI response:"
-        );
-
-        console.log(result);
-
+        return tabs[0] || null;
 
     } catch (error) {
 
         console.error(
-            "SERENITY: Could not send data to FastAPI.",
+            "SERENITY: Could not get active tab:",
             error
         );
 
+        return null;
     }
-
 }
 
 
-// ============================================
-// Stop tracking current website
-// ============================================
+// ============================================================
+// DAILY RESET
+// ============================================================
 
-async function stopTracking() {
+async function ensureToday() {
 
-    await ensureToday();
+    const today =
+        getTodayKey();
 
-    const result =
+    const data =
         await chrome.storage.local.get([
-
-            "serenityActive",
-
-            "serenityTime"
-
+            "serenityDate",
+            "serenityTime",
+            "serenityDomains"
         ]);
 
 
-    const active =
-        result.serenityActive;
+    if (data.serenityDate !== today) {
 
+        await chrome.storage.local.set({
+
+            serenityDate:
+                today,
+
+            serenityTime:
+                0,
+
+            serenityDomains:
+                {},
+
+            serenityCurrentElapsed:
+                0
+        });
+
+
+        console.log(
+            "SERENITY: New day detected. Tracking reset."
+        );
+    }
+}
+
+
+// ============================================================
+// START TRACKING
+// ============================================================
+
+async function startTracking(tab) {
 
     if (
-        !active ||
-        !active.startTime ||
-        !active.domain
+        !tab ||
+        !isTrackableUrl(tab.url)
     ) {
 
         return;
-
     }
 
 
-    const elapsedSeconds = Math.floor(
-
-        (
-            Date.now() -
-            active.startTime
-
-        ) / 1000
-
-    );
+    let domain =
+        "unknown";
 
 
-    if (elapsedSeconds <= 0) {
+    try {
 
-        await chrome.storage.local.remove(
+        domain =
+            new URL(tab.url).hostname;
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: Could not read domain:",
+            error
+        );
+    }
+
+
+    const current =
+        await chrome.storage.local.get(
             "serenityActive"
         );
 
+
+    // Already tracking this exact tab.
+    if (
+        current.serenityActive &&
+        current.serenityActive.tabId === tab.id
+    ) {
+
         return;
-
     }
 
 
-    // ----------------------------------------
-    // Existing time tracking
-    // ----------------------------------------
+    const session = {
 
-    const serenityTime =
-        result.serenityTime || {
+        tabId:
+            tab.id,
 
-            date: new Date().toISOString().slice(0, 10),
+        url:
+            tab.url || "",
 
-            totalSeconds: 0,
+        domain:
+            domain,
 
-            sites: {}
+        startTime:
+            Date.now(),
 
+        pageData: {
+
+            url:
+                tab.url || "",
+
+            title:
+                tab.title || "",
+
+            text:
+                ""
+        }
     };
-
-    serenityTime.totalSeconds +=
-        elapsedSeconds;
-
-
-    if (!serenityTime.sites[active.domain]) {
-
-        serenityTime.sites[active.domain] = 0;
-
-    }
-
-
-    serenityTime.sites[active.domain] +=
-        elapsedSeconds;
 
 
     await chrome.storage.local.set({
 
-        serenityTime: serenityTime
-
+        serenityActive:
+            session
     });
 
 
-    // ----------------------------------------
-    // Send page information to FastAPI
-    // ----------------------------------------
-
-    await sendToFastAPI(
-
-        active.pageData,
-
-        elapsedSeconds
-
+    console.log(
+        "SERENITY: Started tracking:",
+        domain
     );
+}
+
+
+// ============================================================
+// STOP TRACKING
+// ============================================================
+
+async function stopTracking(
+    sendToAI = true
+) {
+
+    const data =
+        await chrome.storage.local.get(
+            "serenityActive"
+        );
+
+
+    const active =
+        data.serenityActive;
+
+
+    if (!active) {
+
+        return;
+    }
+
+
+    const elapsedSeconds =
+        Math.max(
+            0,
+            Math.floor(
+                (Date.now() -
+                    active.startTime) /
+                1000
+            )
+        );
+
+
+    if (elapsedSeconds > 0) {
+
+        const totals =
+            await chrome.storage.local.get([
+                "serenityTime",
+                "serenityDomains"
+            ]);
+
+
+        const today =
+            getTodayKey();
+
+
+        let totalTime =
+            Number(
+                totals.serenityTime || 0
+            );
+
+
+        let domains =
+            totals.serenityDomains || {};
+
+
+        // ----------------------------------------
+        // Update total time
+        // ----------------------------------------
+
+        totalTime +=
+            elapsedSeconds;
+
+
+        // ----------------------------------------
+        // Update domain time
+        // ----------------------------------------
+
+        domains[active.domain] =
+            Number(
+                domains[active.domain] || 0
+            ) +
+            elapsedSeconds;
+
+
+        // ----------------------------------------
+        // Save tracking data
+        // ----------------------------------------
+
+        await chrome.storage.local.set({
+
+            serenityDate:
+                today,
+
+            serenityTime:
+                totalTime,
+
+            serenityDomains:
+                domains,
+
+            serenityCurrentElapsed:
+                0
+        });
+
+
+        console.log(
+            "SERENITY: Tracking updated."
+        );
+
+
+        console.log(
+            "SERENITY: Total browsing time:",
+            totalTime,
+            "seconds"
+        );
+
+
+        console.log(
+            "SERENITY: Domain:",
+            active.domain,
+            elapsedSeconds,
+            "seconds"
+        );
+    }
+
+
+    console.log(
+        "SERENITY: Stopped tracking:",
+        active.domain,
+        elapsedSeconds,
+        "seconds"
+    );
+
+
+    // ----------------------------------------
+    // Send page data to FastAPI
+    // ----------------------------------------
+
+    if (
+        sendToAI &&
+        active.pageData
+    ) {
+
+        await sendToFastAPI(
+            active.pageData,
+            elapsedSeconds
+        );
+    }
 
 
     // ----------------------------------------
@@ -381,130 +346,747 @@ async function stopTracking() {
     await chrome.storage.local.remove(
         "serenityActive"
     );
-
-
-    console.log(
-
-        `SERENITY: ${elapsedSeconds} seconds spent on ${active.domain}`
-
-    );
-
 }
 
 
-// ============================================
-// Receive messages from content.js
-// ============================================
-chrome.runtime.onMessage.addListener(
-    async (message, sender) => {
+// ============================================================
+// FASTAPI
+// ============================================================
 
-        if (message.type !== "PAGE_DATA") {
+async function sendToFastAPI(
+    pageData,
+    elapsedSeconds
+) {
+
+    if (
+        !pageData ||
+        !pageData.url
+    ) {
+
+        console.log(
+            "SERENITY: No valid page data to send."
+        );
+
+        return null;
+    }
+
+
+    const payload = {
+
+        url:
+            pageData.url,
+
+        title:
+            pageData.title || "",
+
+        text:
+            pageData.text || "",
+
+        time_spent_seconds:
+            Math.max(
+                0,
+                Math.floor(
+                    elapsedSeconds || 0
+                )
+            )
+    };
+
+
+    console.log(
+        "SERENITY: Sending page data to FastAPI..."
+    );
+
+
+    console.log(
+        "SERENITY: Text length being sent:",
+        payload.text.length
+    );
+
+
+    try {
+
+        const response =
+            await fetch(
+                API_URL,
+                {
+                    method:
+                        "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    },
+
+                    body:
+                        JSON.stringify(payload)
+                }
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "FastAPI returned status " +
+                response.status
+            );
+        }
+
+
+        const result =
+            await response.json();
+
+
+        console.log(
+            "SERENITY: AIML response:",
+            result
+        );
+
+
+        return result;
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: FastAPI request failed:",
+            error
+        );
+
+        return null;
+    }
+}
+
+
+// ============================================================
+// HEARTBEAT
+// ============================================================
+
+async function heartbeat() {
+
+    try {
+
+        await ensureToday();
+
+
+        const data =
+            await chrome.storage.local.get(
+                "serenityActive"
+            );
+
+
+        const active =
+            data.serenityActive;
+
+
+        if (!active) {
+
             return;
         }
 
-        if (!sender.tab || sender.tab.id === undefined) {
+
+        const elapsedSeconds =
+            Math.max(
+                0,
+                Math.floor(
+                    (Date.now() -
+                        active.startTime) /
+                    1000
+                )
+            );
+
+
+        await chrome.storage.local.set({
+
+            serenityCurrentElapsed:
+                elapsedSeconds
+        });
+
+
+        console.log(
+            "SERENITY: Heartbeat:",
+            elapsedSeconds,
+            "seconds"
+        );
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: Heartbeat error:",
+            error
+        );
+    }
+}
+
+
+// ============================================================
+// AIML ANALYSIS
+// ============================================================
+
+async function analyzeActivePage() {
+
+    try {
+
+        await ensureToday();
+
+
+        const data =
+            await chrome.storage.local.get([
+                "serenityActive",
+                "serenityLastIntervention"
+            ]);
+
+
+        const active =
+            data.serenityActive;
+
+
+        if (!active) {
+
             return;
         }
 
-        const tabId = sender.tab.id;
 
-        const result = await chrome.storage.local.get([
-            "serenityActive",
-            "serenityPendingPageData"
-        ]);
-
-        const active = result.serenityActive;
-
-        // If this tab is currently being tracked,
-        // attach the page data directly.
-        if (active && active.tabId === tabId) {
-
-            active.pageData = message.data;
-
-            await chrome.storage.local.set({
-                serenityActive: active
-            });
+        if (
+            !active.pageData ||
+            !active.pageData.text
+        ) {
 
             console.log(
-                "SERENITY: Page data stored."
+                "SERENITY: Waiting for page text..."
             );
 
             return;
         }
 
-        // If tracking has not started yet,
-        // temporarily save the page data.
-        const pending =
-            result.serenityPendingPageData || {};
 
-        pending[tabId] = message.data;
+        const elapsedSeconds =
+            Math.max(
+                0,
+                Math.floor(
+                    (Date.now() -
+                        active.startTime) /
+                    1000
+                )
+            );
 
-        await chrome.storage.local.set({
-            serenityPendingPageData: pending
-        });
 
         console.log(
-            "SERENITY: Page data temporarily stored for tab:",
-            tabId
+            "SERENITY: AIML analysis after",
+            elapsedSeconds,
+            "seconds"
+        );
+
+
+        console.log(
+            "SERENITY: Text length for AIML:",
+            active.pageData.text.length
+        );
+
+
+        const result =
+            await sendToFastAPI(
+                active.pageData,
+                elapsedSeconds
+            );
+
+
+        if (!result) {
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // NO TRIGGER
+        // --------------------------------------------------------
+
+        if (!result.trigger) {
+
+            console.log(
+                "SERENITY: AIML says NO intervention."
+            );
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // COOLDOWN
+        // --------------------------------------------------------
+
+        const lastIntervention =
+            Number(
+                data.serenityLastIntervention || 0
+            );
+
+
+        if (
+            lastIntervention &&
+            Date.now() -
+                lastIntervention <
+                INTERVENTION_COOLDOWN_MS
+        ) {
+
+            console.log(
+                "SERENITY: Intervention cooldown active."
+            );
+
+            return;
+        }
+
+
+        // --------------------------------------------------------
+        // REAL AIML CONTEXT
+        // --------------------------------------------------------
+
+        const context = {
+
+            trigger:
+                true,
+
+            emotion:
+                result.emotion?.dominant_emotion ||
+                result.aiml?.dominant_emotion ||
+                "unknown",
+
+            negative_score:
+                Number(
+                    result.emotion?.negative_score ??
+                    result.aiml?.negative_score ??
+                    0
+                ),
+
+            content_type:
+                result.emotion?.content_type ||
+                result.aiml?.content_type ||
+                "unknown",
+
+            content_text:
+                result.emotion?.content_text ||
+                active.pageData.text ||
+                "",
+
+            page_url:
+                active.pageData.url || "",
+
+            page_title:
+                active.pageData.title || "",
+
+            time_spent_seconds:
+                elapsedSeconds
+        };
+
+
+        await chrome.storage.local.set({
+
+            serenityInterventionContext:
+                context,
+
+            serenityLastIntervention:
+                Date.now()
+        });
+
+
+        console.log(
+            "SERENITY: =================================="
+        );
+
+
+        console.log(
+            "SERENITY: GENUINE AIML TRIGGER"
+        );
+
+
+        console.log(
+            "SERENITY: Emotion:",
+            context.emotion
+        );
+
+
+        console.log(
+            "SERENITY: Negative score:",
+            context.negative_score
+        );
+
+
+        console.log(
+            "SERENITY: =================================="
+        );
+
+
+        // --------------------------------------------------------
+        // NOTIFICATION
+        // --------------------------------------------------------
+
+        showSerenityNotification();
+
+
+        // --------------------------------------------------------
+        // OPEN SERENITY AFTER 10 SECONDS
+        // --------------------------------------------------------
+
+        await scheduleSerenityOpen();
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: AIML analysis error:",
+            error
+        );
+    }
+}
+
+
+// ============================================================
+// NOTIFICATION
+// ============================================================
+
+function showSerenityNotification() {
+
+    chrome.notifications.create(
+        "serenity-intervention",
+        {
+            type:
+                "basic",
+
+            iconUrl:
+                "icon128.png",
+
+            title:
+                "Serenity",
+
+            message:
+                "You've been taking in a lot. Let's have a little pause.",
+
+            priority:
+                2
+        },
+
+        (notificationId) => {
+
+            if (
+                chrome.runtime.lastError
+            ) {
+
+                console.error(
+                    "SERENITY: Notification error:",
+                    chrome.runtime.lastError.message
+                );
+
+                return;
+            }
+
+
+            console.log(
+                "SERENITY: Notification shown:",
+                notificationId
+            );
+        }
+    );
+}
+
+
+// ============================================================
+// OPEN SERENITY
+// ============================================================
+
+let serenityOpenTimer =
+    null;
+
+
+async function scheduleSerenityOpen() {
+
+    if (serenityOpenTimer) {
+
+        clearTimeout(
+            serenityOpenTimer
+        );
+    }
+
+
+    serenityOpenTimer =
+        setTimeout(
+            openSerenityPage,
+            SERENITY_OPEN_DELAY_MS
+        );
+}
+
+
+async function openSerenityPage() {
+
+    try {
+
+        const data =
+            await chrome.storage.local.get(
+                "serenityInterventionContext"
+            );
+
+
+        const context =
+            data.serenityInterventionContext;
+
+
+        if (
+            !context ||
+            !context.trigger
+        ) {
+
+            console.log(
+                "SERENITY: No valid intervention context."
+            );
+
+            return;
+        }
+
+
+        const params =
+            new URLSearchParams();
+
+
+        params.set(
+            "trigger",
+            "true"
+        );
+
+
+        params.set(
+            "emotion",
+            context.emotion || "unknown"
+        );
+
+
+        params.set(
+            "negative_score",
+            String(
+                context.negative_score || 0
+            )
+        );
+
+
+        params.set(
+            "content_type",
+            context.content_type || "unknown"
+        );
+
+
+        params.set(
+            "content_text",
+            context.content_text || ""
+        );
+
+
+        params.set(
+            "page_url",
+            context.page_url || ""
+        );
+
+
+        params.set(
+            "page_title",
+            context.page_title || ""
+        );
+
+
+        params.set(
+            "time_spent_seconds",
+            String(
+                context.time_spent_seconds || 0
+            )
+        );
+
+
+        const serenityUrl =
+            "http://localhost:3000/?" +
+            params.toString();
+
+
+        console.log(
+            "SERENITY: Opening Serenity."
+        );
+
+
+        await chrome.tabs.create({
+
+            url:
+                serenityUrl
+        });
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: Could not open Serenity:",
+            error
+        );
+    }
+}
+
+
+// ============================================================
+// PAGE DATA FROM CONTENT SCRIPT
+// ============================================================
+
+chrome.runtime.onMessage.addListener(
+    (message, sender) => {
+
+        if (!message) {
+
+            return;
+        }
+
+
+        if (
+            message.type !==
+            "PAGE_DATA"
+        ) {
+
+            return;
+        }
+
+
+        handlePageData(
+            message,
+            sender
         );
     }
 );
 
-// ============================================
-// Initialize tracking
-// ============================================
 
-async function initializeTracking() {
+async function handlePageData(
+    message,
+    sender
+) {
 
-    const result =
-        await chrome.storage.local.get(
-            "serenityActive"
-        );
+    try {
+
+        const data =
+            await chrome.storage.local.get(
+                "serenityActive"
+            );
 
 
-    if (result.serenityActive) {
+        const active =
+            data.serenityActive;
+
+
+        const pageData = {
+
+            url:
+                message.data?.url ||
+                message.url ||
+                sender.tab?.url ||
+                "",
+
+            title:
+                message.data?.title ||
+                message.title ||
+                sender.tab?.title ||
+                "",
+
+            text:
+                message.data?.text ||
+                message.text ||
+                ""
+        };
+
 
         console.log(
-            "SERENITY: Existing tracking session found."
+            "SERENITY: Received PAGE_DATA.",
+            {
+                url:
+                    pageData.url,
+
+                title:
+                    pageData.title,
+
+                textLength:
+                    pageData.text.length
+            }
         );
 
-        return;
 
+        if (
+            active &&
+            sender.tab &&
+            active.tabId ===
+                sender.tab.id
+        ) {
+
+            // ----------------------------------------
+            // IMPORTANT:
+            // Update the existing session WITHOUT
+            // destroying the extracted text.
+            // ----------------------------------------
+
+            active.pageData = {
+
+                url:
+                    pageData.url ||
+                    active.pageData?.url ||
+                    active.url,
+
+                title:
+                    pageData.title ||
+                    active.pageData?.title ||
+                    "",
+
+                text:
+                    pageData.text ||
+                    active.pageData?.text ||
+                    ""
+            };
+
+
+            await chrome.storage.local.set({
+
+                serenityActive:
+                    active
+            });
+
+
+            console.log(
+                "SERENITY: Page data updated."
+            );
+
+
+            console.log(
+                "SERENITY: Stored text length:",
+                active.pageData.text.length
+            );
+
+        } else {
+
+            await chrome.storage.local.set({
+
+                serenityPendingPageData:
+                    pageData
+            });
+
+
+            console.log(
+                "SERENITY: Page data stored as pending."
+            );
+        }
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: PAGE_DATA error:",
+            error
+        );
     }
-
-
-    const tab =
-        await getActiveTab();
-
-
-    if (tab) {
-
-        await startTracking(tab);
-
-    }
-
 }
 
 
-initializeTracking();
-
-
-// ============================================
-// User switches tabs
-// ============================================
+// ============================================================
+// TAB ACTIVATION
+// ============================================================
 
 chrome.tabs.onActivated.addListener(
     async (activeInfo) => {
 
-        console.log(
-            "SERENITY: Tab changed."
-        );
-
-
-        await stopTracking();
-
-
         try {
+
+            await stopTracking(true);
+
 
             const tab =
                 await chrome.tabs.get(
@@ -512,149 +1094,185 @@ chrome.tabs.onActivated.addListener(
                 );
 
 
-            await startTracking(tab);
+            if (
+                tab &&
+                isTrackableUrl(tab.url)
+            ) {
 
+                await startTracking(tab);
+            }
 
         } catch (error) {
 
             console.error(
-
-                "SERENITY: Could not get active tab.",
-
+                "SERENITY: Tab activation error:",
                 error
-
             );
-
         }
-
     }
 );
+
+
+// ============================================================
+// TAB UPDATE
+// ============================================================
+
+chrome.tabs.onUpdated.addListener(
+    async (
+        tabId,
+        changeInfo,
+        tab
+    ) => {
+
+        if (
+            changeInfo.status !==
+            "complete"
+        ) {
+
+            return;
+        }
+
+
+        try {
+
+            const data =
+                await chrome.storage.local.get(
+                    "serenityActive"
+                );
+
+
+            const active =
+                data.serenityActive;
+
+
+            if (
+                !active ||
+                active.tabId !== tabId
+            ) {
+
+                return;
+            }
+
+
+            // ----------------------------------------
+            // IMPORTANT:
+            // Update URL/title only.
+            //
+            // NEVER replace pageData.text with "".
+            // content.js supplies the actual text.
+            // ----------------------------------------
+
+            active.url =
+                tab.url ||
+                active.url;
+
+
+            if (!active.pageData) {
+
+                active.pageData = {
+
+                    url:
+                        tab.url ||
+                        active.url,
+
+                    title:
+                        tab.title ||
+                        "",
+
+                    text:
+                        ""
+                };
+
+            } else {
+
+                active.pageData.url =
+                    tab.url ||
+                    active.pageData.url ||
+                    active.url;
+
+                active.pageData.title =
+                    tab.title ||
+                    active.pageData.title ||
+                    "";
+            }
+
+
+            await chrome.storage.local.set({
+
+                serenityActive:
+                    active
+            });
+
+
+            console.log(
+                "SERENITY: Tab updated."
+            );
+
+
+            console.log(
+                "SERENITY: Preserved text length:",
+                (active.pageData.text || "").length
+            );
+
+        } catch (error) {
+
+            console.error(
+                "SERENITY: Tab update error:",
+                error
+            );
+        }
+    }
+);
+
+
+// ============================================================
+// TAB CLOSED
+// ============================================================
+
 chrome.tabs.onRemoved.addListener(
     async (tabId) => {
 
-        const result =
-            await chrome.storage.local.get(
-                "serenityActive"
+        try {
+
+            const data =
+                await chrome.storage.local.get(
+                    "serenityActive"
+                );
+
+
+            const active =
+                data.serenityActive;
+
+
+            if (
+                active &&
+                active.tabId === tabId
+            ) {
+
+                await stopTracking(true);
+            }
+
+        } catch (error) {
+
+            console.error(
+                "SERENITY: Tab removal error:",
+                error
             );
-
-        const active =
-            result.serenityActive;
-
-        if (!active) {
-            return;
         }
-
-        if (active.tabId !== tabId) {
-            return;
-        }
-
-        console.log(
-            "SERENITY: Tracked tab closed."
-        );
-
-        await stopTracking();
     }
 );
 
 
-// ============================================
-// User navigates to another webpage
-// ============================================
-
-chrome.tabs.onUpdated.addListener(
-
-    async (tabId, changeInfo, tab) => {
-
-        if (
-            changeInfo.status !== "complete"
-        ) {
-
-            return;
-
-        }
-
-
-        if (
-            !isTrackableUrl(tab.url)
-        ) {
-
-            return;
-
-        }
-
-
-        const result =
-            await chrome.storage.local.get(
-                "serenityActive"
-            );
-
-
-        const active =
-            result.serenityActive;
-
-
-        // ------------------------------------
-        // No active tracking session
-        // ------------------------------------
-
-        if (!active) {
-
-            console.log(
-                "SERENITY: No active session. Starting tracking."
-            );
-
-
-            await startTracking(tab);
-
-            return;
-
-        }
-
-
-        // ------------------------------------
-        // Different tab
-        // ------------------------------------
-
-        if (
-            active.tabId !== tabId
-        ) {
-
-            return;
-
-        }
-
-
-        // ------------------------------------
-        // Same tab navigated to a new page
-        // ------------------------------------
-
-        console.log(
-            "SERENITY: Page changed."
-        );
-
-
-        await stopTracking();
-
-
-        await startTracking(tab);
-
-    }
-
-);
-
-
-// ============================================
-// Chrome loses or regains focus
-// ============================================
+// ============================================================
+// WINDOW FOCUS
+// ============================================================
+//
+// Losing window focus does NOT stop tracking.
+// This prevents DevTools from killing the session.
+//
 
 chrome.windows.onFocusChanged.addListener(
-
     async (windowId) => {
-
-
-        // ------------------------------------
-        // Chrome lost focus
-        // ------------------------------------
 
         if (
             windowId ===
@@ -662,95 +1280,193 @@ chrome.windows.onFocusChanged.addListener(
         ) {
 
             console.log(
-                "SERENITY: Chrome lost focus."
+                "SERENITY: Window lost focus. Keeping session alive."
             );
 
-
-            await stopTracking();
-
-
             return;
-
         }
 
 
-        // ------------------------------------
-        // Chrome regained focus
-        // ------------------------------------
-
-        console.log(
-            "SERENITY: Chrome regained focus."
-        );
+        const tab =
+            await getActiveTab();
 
 
-        try {
+        if (
+            tab &&
+            isTrackableUrl(tab.url)
+        ) {
 
-            const tabs =
-                await chrome.tabs.query({
-
-                    active: true,
-
-                    windowId: windowId
-
-                });
-
-
-            if (tabs.length === 0) {
-
-                console.log(
-                    "SERENITY: No active tab found."
+            const data =
+                await chrome.storage.local.get(
+                    "serenityActive"
                 );
-
-                return;
-
-            }
-
-
-            const activeTab =
-                tabs[0];
 
 
             if (
-                !isTrackableUrl(
-                    activeTab.url
-                )
+                !data.serenityActive ||
+                data.serenityActive.tabId !==
+                    tab.id
             ) {
 
-                console.log(
-                    "SERENITY: Active tab is not trackable."
-                );
-
-                return;
-
+                await startTracking(tab);
             }
+        }
+    }
+);
 
 
-            await startTracking(
-                activeTab
-            );
+// ============================================================
+// ALARMS
+// ============================================================
 
+chrome.alarms.onAlarm.addListener(
+    async (alarm) => {
 
-            console.log(
+        if (
+            alarm.name ===
+            HEARTBEAT_ALARM
+        ) {
 
-                "SERENITY: Resumed tracking:",
-
-                activeTab.url
-
-            );
-
-
-        } catch (error) {
-
-            console.error(
-
-                "SERENITY: Error resuming tracking:",
-
-                error
-
-            );
-
+            await heartbeat();
         }
 
-    }
 
+        if (
+            alarm.name ===
+            ANALYSIS_ALARM
+        ) {
+
+            await analyzeActivePage();
+        }
+    }
 );
+
+
+// ============================================================
+// CREATE ALARMS
+// ============================================================
+
+async function createAlarms() {
+
+    await chrome.alarms.clear(
+        HEARTBEAT_ALARM
+    );
+
+
+    await chrome.alarms.clear(
+        ANALYSIS_ALARM
+    );
+
+
+    chrome.alarms.create(
+        HEARTBEAT_ALARM,
+        {
+            periodInMinutes:
+                HEARTBEAT_PERIOD_MINUTES
+        }
+    );
+
+
+    chrome.alarms.create(
+        ANALYSIS_ALARM,
+        {
+            periodInMinutes:
+                ANALYSIS_PERIOD_MINUTES
+        }
+    );
+
+
+    console.log(
+        "SERENITY: Tracking alarms created."
+    );
+}
+
+
+// ============================================================
+// INITIALIZATION
+// ============================================================
+
+async function initialize() {
+
+    try {
+
+        await ensureToday();
+
+
+        await createAlarms();
+
+
+        const tab =
+            await getActiveTab();
+
+
+        if (
+            tab &&
+            isTrackableUrl(tab.url)
+        ) {
+
+            await startTracking(tab);
+
+
+            const pending =
+                await chrome.storage.local.get(
+                    "serenityPendingPageData"
+                );
+
+
+            if (
+                pending.serenityPendingPageData
+            ) {
+
+                const data =
+                    await chrome.storage.local.get(
+                        "serenityActive"
+                    );
+
+
+                if (
+                    data.serenityActive
+                ) {
+
+                    data.serenityActive.pageData =
+                        pending.serenityPendingPageData;
+
+
+                    await chrome.storage.local.set({
+
+                        serenityActive:
+                            data.serenityActive
+                    });
+
+
+                    await chrome.storage.local.remove(
+                        "serenityPendingPageData"
+                    );
+
+
+                    console.log(
+                        "SERENITY: Pending page data attached."
+                    );
+                }
+            }
+        }
+
+
+        await heartbeat();
+
+
+        console.log(
+            "SERENITY: Background service worker loaded successfully."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "SERENITY: Initialization error:",
+            error
+        );
+    }
+}
+
+
+initialize();

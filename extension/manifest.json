@@ -1,14 +1,14 @@
 {
   "manifest_version": 3,
-
   "name": "Serenity",
   "version": "1.0.0",
-
   "description": "Serenity gently interrupts unhealthy scrolling patterns with personalized positive interventions.",
 
   "permissions": [
     "tabs",
-    "storage"
+    "storage",
+    "notifications",
+    "alarms"
   ],
 
   "host_permissions": [

@@ -24,7 +24,6 @@ if str(PROJECT_ROOT) not in sys.path:
 # =========================================================
 
 from ai.pipeline import analyze_content
-
 from integration.llm.intervention import generate_intervention
 from integration.tts.elevenlabs import generate_audio
 
@@ -58,18 +57,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "http://localhost",
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8501",
     ],
-
     allow_credentials=True,
-
     allow_methods=["*"],
-
     allow_headers=["*"],
 )
 
@@ -98,8 +93,8 @@ SUPPORTED_LANGUAGES = [
     "marathi"
 ]
 
-# Temporary language for integration testing.
-# Later this will come from the frontend language selector.
+# Kept for compatibility with the previous integration.
+# The frontend will now choose the actual audio language.
 DEFAULT_INTERVENTION_LANGUAGE = "english"
 
 
@@ -108,38 +103,27 @@ DEFAULT_INTERVENTION_LANGUAGE = "english"
 # =========================================================
 
 class PageData(BaseModel):
-
     url: str
-
     title: str
-
     text: str
-
     time_spent_seconds: int = Field(
         ge=0
     )
 
 
 class EmotionData(BaseModel):
-
     dominant_emotion: str
-
     negative_score: float = Field(
         ge=0.0,
         le=1.0
     )
-
     content_type: str = "unknown"
-
     content_text: str = ""
 
 
 class InterventionRequest(BaseModel):
-
     page: PageData
-
     emotion: EmotionData
-
     language: Literal[
         "english",
         "hindi",
@@ -150,13 +134,17 @@ class InterventionRequest(BaseModel):
     ]
 
 
+class PreviewRequest(BaseModel):
+    page: PageData
+    emotion: EmotionData
+
+
 # =========================================================
 # ROOT
 # =========================================================
 
 @app.get("/")
 def root():
-
     return {
         "status": "Serenity API is running",
         "service": "Serenity Scroll",
@@ -170,14 +158,20 @@ def root():
 
 @app.get("/health")
 def health():
-
     return {
         "status": "healthy"
     }
 
 
 # =========================================================
-# PAGE DATA + AIML + INTERVENTION
+# PAGE DATA + AIML
+#
+# IMPORTANT:
+# This endpoint ONLY performs AIML analysis.
+# It does NOT call Gemini or ElevenLabs.
+#
+# The language-specific intervention happens later through
+# /intervention after the user selects a language.
 # =========================================================
 
 @app.post("/page-data")
@@ -248,6 +242,10 @@ def receive_page_data(
         )
 
 
+    # =====================================================
+    # PRINT AIML RESULT
+    # =====================================================
+
     print("\nAIML RESULT:")
 
     print(
@@ -309,90 +307,156 @@ def receive_page_data(
         )
 
         return {
-
             "success": True,
-
             "trigger": False,
-
-            "message":
-                "No intervention required.",
-
-            "aiml": analysis
+            "message": "No intervention required.",
+            "aiml": analysis,
+            "page": {
+                "url": data.url,
+                "title": data.title,
+                "text": data.text[:5000],
+                "time_spent_seconds": data.time_spent_seconds
+            }
         }
 
 
     # =====================================================
-    # STEP 3: PREPARE DATA FOR GEMINI
+    # TRIGGERED
+    #
+    # IMPORTANT:
+    # Gemini and ElevenLabs are NOT called here.
+    #
+    # We return the actual AIML context so the extension
+    # and frontend can use it.
     # =====================================================
 
     print("\n----------------------------------------")
-    print("STEP 3: PREPARE GEMINI INPUT")
+    print("STEP 3: INTERVENTION TRIGGERED")
     print("----------------------------------------")
 
     emotion_data = {
-
-        "dominant_emotion":
-            analysis.get(
-                "dominant_emotion"
-            ),
-
-        "negative_score":
-            analysis.get(
-                "negative_score",
-                0.0
-            ),
-
-        "content_type":
-            "unknown",
-
-        "content_text":
-            data.text[:5000]
+        "dominant_emotion": analysis.get(
+            "dominant_emotion"
+        ),
+        "negative_score": analysis.get(
+            "negative_score",
+            0.0
+        ),
+        "content_type": "unknown",
+        "content_text": data.text[:5000]
     }
 
+    response = {
+        "success": True,
+        "trigger": True,
+
+        "emotion": emotion_data,
+
+        "aiml": analysis,
+
+        "page": {
+            "url": data.url,
+            "title": data.title,
+            "text": data.text[:5000],
+            "time_spent_seconds": data.time_spent_seconds
+        }
+    }
 
     print(
-        "Intervention language:",
-        DEFAULT_INTERVENTION_LANGUAGE
+        "\nAIML trigger returned to client."
+    )
+
+    print(
+        "No Gemini call was made."
+    )
+
+    print(
+        "No ElevenLabs call was made."
+    )
+
+    print("\n========================================")
+    print("SERENITY AIML STAGE COMPLETE")
+    print("========================================\n")
+
+    return response
+
+
+# =========================================================
+# ENGLISH PREVIEW
+#
+# Used by the Serenity frontend to generate the visible
+# intervention content.
+#
+# IMPORTANT:
+# This preview is ALWAYS generated in English.
+# It does NOT generate audio.
+# =========================================================
+
+@app.post("/intervention/preview")
+def create_intervention_preview(
+    data: PreviewRequest
+):
+
+    print("\n========================================")
+    print("SERENITY ENGLISH PREVIEW")
+    print("========================================")
+
+    print(
+        "Emotion:",
+        data.emotion.dominant_emotion
+    )
+
+    print(
+        "Negative score:",
+        data.emotion.negative_score
     )
 
 
-    # =====================================================
-    # STEP 4: GEMINI
-    # =====================================================
+    emotion_data = {
+        "dominant_emotion":
+            data.emotion.dominant_emotion,
 
-    print("\n----------------------------------------")
-    print("STEP 4: GEMINI")
-    print("----------------------------------------")
+        "negative_score":
+            data.emotion.negative_score,
+
+        "content_type":
+            data.emotion.content_type,
+
+        "content_text":
+            data.emotion.content_text
+            or data.page.text[:5000]
+    }
+
+
+    # =====================================================
+    # GEMINI — ENGLISH DISPLAY CONTENT
+    # =====================================================
 
     try:
 
         intervention = generate_intervention(
-
             emotion_data,
-
-            language=DEFAULT_INTERVENTION_LANGUAGE
+            language="english"
         )
 
     except Exception as e:
 
         print(
-            "Gemini error:",
+            "Gemini preview error:",
             str(e)
         )
 
         raise HTTPException(
-
             status_code=500,
-
             detail={
-                "stage": "gemini",
+                "stage": "gemini_preview",
                 "error": str(e)
             }
         )
 
 
     print(
-        "Gemini intervention generated."
+        "English intervention generated."
     )
 
     print(
@@ -400,171 +464,41 @@ def receive_page_data(
         intervention.get("title")
     )
 
-
-    # =====================================================
-    # STEP 5: PREPARE AUDIO TEXT
-    # =====================================================
-
-    print("\n----------------------------------------")
-    print("STEP 5: PREPARE AUDIO")
-    print("----------------------------------------")
-
-    audio_text = (
-
-        f"{intervention['message']} "
-
-        f"{intervention['activity']}"
-    )
+    print("\n========================================\n")
 
 
-    # =====================================================
-    # STEP 6: UNIQUE AUDIO FILE
-    # =====================================================
-
-    audio_filename = (
-
-        f"serenity_"
-
-        f"{DEFAULT_INTERVENTION_LANGUAGE}_"
-
-        f"{uuid.uuid4().hex}.mp3"
-    )
-
-
-    audio_path = (
-
-        AUDIO_DIR /
-
-        audio_filename
-    )
-
-
-    # =====================================================
-    # STEP 7: ELEVENLABS
-    # =====================================================
-
-    print("\n----------------------------------------")
-    print("STEP 7: ELEVENLABS")
-    print("----------------------------------------")
-
-    try:
-
-        generate_audio(
-
-            text=audio_text,
-
-            language=DEFAULT_INTERVENTION_LANGUAGE,
-
-            output_file=str(audio_path)
-        )
-
-    except Exception as e:
-
-        print(
-            "ElevenLabs error:",
-            str(e)
-        )
-
-        raise HTTPException(
-
-            status_code=500,
-
-            detail={
-                "stage": "elevenlabs",
-                "error": str(e)
-            }
-        )
-
-
-    print(
-        "Audio generated successfully."
-    )
-
-
-    # =====================================================
-    # STEP 8: AUDIO URL
-    # =====================================================
-
-    audio_url = (
-
-        f"http://localhost:8000"
-
-        f"/audio/{audio_filename}"
-    )
-
-
-    # =====================================================
-    # STEP 9: FINAL RESPONSE
-    # =====================================================
-
-    response = {
-
+    return {
         "success": True,
-
         "trigger": True,
-
-        "title":
-            intervention["title"],
-
-        "message":
-            intervention["message"],
-
-        "activity":
-            intervention["activity"],
-
-        "duration_seconds":
-            intervention["duration_seconds"],
-
-        "audio_url":
-            audio_url,
-
-        "language":
-            DEFAULT_INTERVENTION_LANGUAGE,
-
-        "emotion":
-            analysis.get(
-                "dominant_emotion"
-            ),
-
-        "negative_score":
-            analysis.get(
-                "negative_score"
-            ),
-
-        "aiml":
-            analysis
+        "intervention": intervention,
+        "language": "english",
+        "emotion": data.emotion.dominant_emotion,
+        "negative_score": data.emotion.negative_score
     }
 
 
-    print("\n========================================")
-    print("SERENITY PIPELINE COMPLETE")
-    print("========================================")
-
-    print(
-        "Trigger:",
-        response["trigger"]
-    )
-
-    print(
-        "Language:",
-        response["language"]
-    )
-
-    print(
-        "Audio:",
-        audio_url
-    )
-
-    print(
-        "========================================\n"
-    )
-
-
-    return response
-
-
 # =========================================================
-# MANUAL INTERVENTION ENDPOINT
+# SELECTED-LANGUAGE INTERVENTION
+#
+# Called ONLY after the user selects a language in the
+# Serenity frontend.
+#
+# Flow:
+#
+# frontend
+#     ↓
+# /intervention
+#     ↓
+# Gemini
+#     ↓
+# selected-language intervention text
+#     ↓
+# ElevenLabs
+#     ↓
+# audio URL
+#
+# The frontend can use the returned audio URL while keeping
+# its visible English intervention unchanged.
 # =========================================================
 
 @app.post("/intervention")
@@ -573,7 +507,7 @@ def create_intervention(
 ):
 
     print("\n================================")
-    print("SERENITY MANUAL INTERVENTION")
+    print("SERENITY LANGUAGE INTERVENTION")
     print("================================")
 
     print(
@@ -597,62 +531,12 @@ def create_intervention(
     )
 
 
-    # -----------------------------------------------------
-    # MANUAL ENDPOINT TRIGGER
-    # -----------------------------------------------------
-
-    trigger = (
-
-        data.emotion.negative_score
-        >= 0.70
-
-        and
-
-        data.page.time_spent_seconds
-        >= 30
-    )
-
-
-    print(
-        "Trigger:",
-        trigger
-    )
-
-
-    # -----------------------------------------------------
-    # NO INTERVENTION
-    # -----------------------------------------------------
-
-    if not trigger:
-
-        print(
-            "No intervention required."
-        )
-
-        print(
-            "================================\n"
-        )
-
-        return {
-
-            "success": True,
-
-            "trigger": False,
-
-            "message":
-                "No intervention required.",
-
-            "emotion":
-                data.emotion.dominant_emotion,
-
-            "negative_score":
-                data.emotion.negative_score
-        }
-
-
-    # -----------------------------------------------------
-    # PREPARE EMOTION DATA FOR GEMINI
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 1: GEMINI
+    #
+    # The selected language is used here because this
+    # content will become the spoken audio.
+    # =====================================================
 
     emotion_data = {
 
@@ -671,18 +555,12 @@ def create_intervention(
     }
 
 
-    # -----------------------------------------------------
-    # GEMINI
-    # -----------------------------------------------------
-
     print("\nSTEP 1: GEMINI")
 
     try:
 
         intervention = generate_intervention(
-
             emotion_data,
-
             language=data.language
         )
 
@@ -694,9 +572,7 @@ def create_intervention(
         )
 
         raise HTTPException(
-
             status_code=500,
-
             detail={
                 "stage": "gemini",
                 "error": str(e)
@@ -709,54 +585,43 @@ def create_intervention(
     )
 
 
-    # -----------------------------------------------------
-    # COMBINE MESSAGE FOR TTS
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 2: PREPARE AUDIO TEXT
+    # =====================================================
 
     audio_text = (
-
         f"{intervention['message']} "
-
         f"{intervention['activity']}"
     )
 
 
-    # -----------------------------------------------------
-    # UNIQUE AUDIO FILE
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 3: UNIQUE AUDIO FILE
+    # =====================================================
 
     audio_filename = (
-
         f"serenity_"
-
         f"{data.language}_"
-
         f"{uuid.uuid4().hex}.mp3"
     )
 
-
     audio_path = (
-
         AUDIO_DIR /
-
         audio_filename
     )
 
 
-    # -----------------------------------------------------
-    # ELEVENLABS
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 4: ELEVENLABS
+    # =====================================================
 
     print("\nSTEP 2: ELEVENLABS")
 
     try:
 
         generate_audio(
-
             text=audio_text,
-
             language=data.language,
-
             output_file=str(audio_path)
         )
 
@@ -768,9 +633,7 @@ def create_intervention(
         )
 
         raise HTTPException(
-
             status_code=500,
-
             detail={
                 "stage": "elevenlabs",
                 "error": str(e)
@@ -783,21 +646,19 @@ def create_intervention(
     )
 
 
-    # -----------------------------------------------------
-    # AUDIO URL
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 5: AUDIO URL
+    # =====================================================
 
     audio_url = (
-
         f"http://localhost:8000"
-
         f"/audio/{audio_filename}"
     )
 
 
-    # -----------------------------------------------------
-    # FINAL RESPONSE
-    # -----------------------------------------------------
+    # =====================================================
+    # STEP 6: FINAL RESPONSE
+    # =====================================================
 
     response = {
 
@@ -805,23 +666,11 @@ def create_intervention(
 
         "trigger": True,
 
-        "title":
-            intervention["title"],
+        "intervention": intervention,
 
-        "message":
-            intervention["message"],
+        "audio_url": audio_url,
 
-        "activity":
-            intervention["activity"],
-
-        "duration_seconds":
-            intervention["duration_seconds"],
-
-        "audio_url":
-            audio_url,
-
-        "language":
-            data.language,
+        "language": data.language,
 
         "emotion":
             data.emotion.dominant_emotion,
@@ -832,8 +681,13 @@ def create_intervention(
 
 
     print("\n================================")
-    print("SERENITY PIPELINE COMPLETE")
+    print("SERENITY LANGUAGE PIPELINE COMPLETE")
     print("================================")
+
+    print(
+        "Language:",
+        data.language
+    )
 
     print(
         "Audio:",

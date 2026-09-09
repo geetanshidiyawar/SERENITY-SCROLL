@@ -11,45 +11,51 @@ console.log("SERENITY: Popup opened.");
 
 function formatTime(seconds) {
 
-    seconds = Math.floor(seconds || 0);
+    seconds = Math.floor(Number(seconds) || 0);
 
-
-    // Less than one minute
     if (seconds < 60) {
-
         return `${seconds} sec`;
-
     }
 
-
-    // Minutes
     const minutes = Math.floor(seconds / 60);
-
     const remainingSeconds = seconds % 60;
-
 
     if (minutes < 60) {
 
         if (remainingSeconds === 0) {
-
             return `${minutes} min`;
-
         }
 
         return `${minutes} min ${remainingSeconds} sec`;
-
     }
 
-
-    // Hours
     const hours = Math.floor(minutes / 60);
-
     const remainingMinutes = minutes % 60;
 
+    if (remainingMinutes === 0) {
+        return `${hours} hr`;
+    }
 
     return `${hours} hr ${remainingMinutes} min`;
 }
 
+
+// --------------------------------------------
+// Get today's date
+// --------------------------------------------
+
+function getTodayKey() {
+
+    const now = new Date();
+
+    return (
+        now.getFullYear() +
+        "-" +
+        String(now.getMonth() + 1).padStart(2, "0") +
+        "-" +
+        String(now.getDate()).padStart(2, "0")
+    );
+}
 
 
 // --------------------------------------------
@@ -61,26 +67,46 @@ async function loadTrackingData() {
     try {
 
         const result =
-           await chrome.storage.local.get("serenityTime");
+            await chrome.storage.local.get([
+                "serenityDate",
+                "serenityTime",
+                "serenityDomains"
+            ]);
 
-       const today =
-           new Date().toISOString().slice(0, 10);
+        const today = getTodayKey();
 
-    let data = result.serenityTime;
+        let totalTime =
+            Number(result.serenityTime || 0);
 
-    if (!data || data.date !== today) {
+        let domains =
+            result.serenityDomains || {};
 
-       data = {
-          date: today,
-          totalSeconds: 0,
-          sites: {}
-        };
+        // ------------------------------------
+        // Reset only when the actual date
+        // changes
+        // ------------------------------------
 
-       await chrome.storage.local.set({
-        serenityTime: data
-       });
-    }
+        if (result.serenityDate !== today) {
 
+            totalTime = 0;
+            domains = {};
+
+            await chrome.storage.local.set({
+
+                serenityDate:
+                    today,
+
+                serenityTime:
+                    0,
+
+                serenityDomains:
+                    {}
+            });
+
+            console.log(
+                "SERENITY: New day detected. Tracking reset."
+            );
+        }
 
 
         // ------------------------------------
@@ -90,10 +116,11 @@ async function loadTrackingData() {
         const totalElement =
             document.getElementById("totalTime");
 
+        if (totalElement) {
 
-        totalElement.textContent =
-            formatTime(data.totalSeconds);
-
+            totalElement.textContent =
+                formatTime(totalTime);
+        }
 
 
         // ------------------------------------
@@ -103,22 +130,27 @@ async function loadTrackingData() {
         const sitesContainer =
             document.getElementById("sites");
 
+        if (!sitesContainer) {
+            return;
+        }
 
         sitesContainer.innerHTML = "";
 
 
         const sites =
-            Object.entries(data.sites || {});
+            Object.entries(domains);
 
 
+        // ------------------------------------
         // No websites
+        // ------------------------------------
+
         if (sites.length === 0) {
 
             sitesContainer.innerHTML =
                 "<p>No browsing activity recorded yet.</p>";
 
             return;
-
         }
 
 
@@ -128,7 +160,7 @@ async function loadTrackingData() {
 
         sites.sort((a, b) => {
 
-            return b[1] - a[1];
+            return Number(b[1]) - Number(a[1]);
 
         });
 
@@ -142,9 +174,7 @@ async function loadTrackingData() {
             const siteElement =
                 document.createElement("div");
 
-
             siteElement.className = "site";
-
 
             siteElement.innerHTML = `
 
@@ -156,11 +186,21 @@ async function loadTrackingData() {
 
             `;
 
-
-            sitesContainer.appendChild(siteElement);
-
+            sitesContainer.appendChild(
+                siteElement
+            );
         });
 
+
+        console.log(
+            "SERENITY: Total browsing time:",
+            formatTime(totalTime)
+        );
+
+        console.log(
+            "SERENITY: Domains:",
+            domains
+        );
 
     } catch (error) {
 
@@ -168,11 +208,8 @@ async function loadTrackingData() {
             "SERENITY: Could not load tracking data.",
             error
         );
-
     }
-
 }
-
 
 
 // --------------------------------------------

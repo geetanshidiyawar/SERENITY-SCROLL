@@ -1,0 +1,163 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-serif: 'Fraunces', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #F7F5EE;
+    color: #243528;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Base Chinese Landscape Shanshui Atmospheric Gradient */
+.serenity-bg {
+  background: 
+    linear-gradient(180deg, #F8F5EC 0%, #EFF4EE 35%, #E5EEE6 70%, #DBE7DE 100%);
+}
+
+/* Glassmorphism Nature Cards with soft rice-paper luminosity */
+.serenity-card {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 
+    0 16px 36px -8px rgba(32, 48, 38, 0.07),
+    0 3px 8px 0 rgba(32, 48, 38, 0.03);
+}
+
+.serenity-card-subtle {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+}
+
+/* Gentle Breathing Animation for Mindful Guidance */
+@keyframes serene-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+.animate-serene-breathe {
+  animation: serene-breathe 6s ease-in-out infinite;
+}
+
+/* Shanshui Misty Fog Animations */
+@keyframes shanshui-mist-slow {
+  0% {
+    transform: translateX(-4%);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateX(4%);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateX(-4%);
+    opacity: 0.7;
+  }
+}
+
+.animate-shanshui-mist {
+  animation: shanshui-mist-slow 28s ease-in-out infinite;
+}
+
+@keyframes shanshui-mist-reverse {
+  0% {
+    transform: translateX(5%);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateX(-5%);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(5%);
+    opacity: 0.65;
+  }
+}
+
+.animate-shanshui-mist-reverse {
+  animation: shanshui-mist-reverse 34s ease-in-out infinite;
+}
+
+/* Floating Bamboo Leaves */
+@keyframes bamboo-drift-1 {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  30% {
+    transform: translate(16px, 24px) rotate(14deg);
+  }
+  65% {
+    transform: translate(-12px, 48px) rotate(-10deg);
+  }
+  100% {
+    transform: translate(4px, 72px) rotate(8deg);
+    opacity: 0.1;
+  }
+}
+
+@keyframes bamboo-drift-2 {
+  0% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  35% {
+    transform: translate(-15px, 28px) rotate(-16deg);
+  }
+  70% {
+    transform: translate(14px, 54px) rotate(12deg);
+  }
+  100% {
+    transform: translate(-2px, 80px) rotate(-6deg);
+    opacity: 0.12;
+  }
+}
+
+/* Celestial Morning Radiance */
+@keyframes celestial-glow {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.04);
+  }
+}
+
+.animate-celestial-glow {
+  animation: celestial-glow 10s ease-in-out infinite;
+}
+
+/* Custom serene scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(78, 107, 86, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(78, 107, 86, 0.4);
+}
