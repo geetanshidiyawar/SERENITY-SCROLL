@@ -16,6 +16,40 @@ const API_URL =
 
 
 // ============================================
+// Reset tracking data when a new day starts
+// ============================================
+
+async function ensureToday() {
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const result =
+        await chrome.storage.local.get("serenityTime");
+
+    const data = result.serenityTime;
+
+    // No previous tracking data
+    if (!data) {
+        return;
+    }
+
+    // First time using the new date
+    if (data.date !== today) {
+
+        console.log(
+            "SERENITY: New day detected. Resetting today's activity."
+        );
+
+        await chrome.storage.local.set({
+            serenityTime: {
+                date: today,
+                totalSeconds: 0,
+                sites: {}
+            }
+        });
+    }
+}
+// ============================================
 // Get the currently active tab
 // ============================================
 
@@ -68,6 +102,7 @@ function isTrackableUrl(url) {
 // ============================================
 
 async function startTracking(tab) {
+    await ensureToday();
 
     if (
         !tab ||
@@ -240,6 +275,8 @@ async function sendToFastAPI(
 
 async function stopTracking() {
 
+    await ensureToday();
+
     const result =
         await chrome.storage.local.get([
 
@@ -294,12 +331,13 @@ async function stopTracking() {
     const serenityTime =
         result.serenityTime || {
 
+            date: new Date().toISOString().slice(0, 10),
+
             totalSeconds: 0,
 
             sites: {}
 
-        };
-
+    };
 
     serenityTime.totalSeconds +=
         elapsedSeconds;

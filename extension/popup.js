@@ -61,17 +61,26 @@ async function loadTrackingData() {
     try {
 
         const result =
-            await chrome.storage.local.get("serenityTime");
+           await chrome.storage.local.get("serenityTime");
 
+       const today =
+           new Date().toISOString().slice(0, 10);
 
-        // If no data exists yet
-        const data = result.serenityTime || {
+    let data = result.serenityTime;
 
-            totalSeconds: 0,
+    if (!data || data.date !== today) {
 
-            sites: {}
-
+       data = {
+          date: today,
+          totalSeconds: 0,
+          sites: {}
         };
+
+       await chrome.storage.local.set({
+        serenityTime: data
+       });
+    }
+
 
 
         // ------------------------------------
